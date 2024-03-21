@@ -6,8 +6,8 @@ use Getopt::Std;
 use Data::Dumper;
 
 #+ handle options +#
-our( $opt_h, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_s, $opt_c, $opt_d );
-getopts('hEFHKs:c:d:');
+our( $opt_h, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_c, $opt_d );
+getopts('hEFHKNs:c:d:');
 
 if ($opt_h) {
   help_fn();
@@ -29,9 +29,9 @@ while( @ARGV ) {
   my $file = shift @ARGV;
   die "Bad file argument: $file\n" unless ( -e $file && $file =~ /\.docx$/ );
   my $full_text = get_full_text( $file );
-#  my $final = replace_special_chars( $full_text );
+  my $final = replace_special_chars( $full_text );
 
-  print $full_text;
+  print $final;
 
 #  print Dumper( \@para_strings );
   # print Dumper( \@para_hashes );
@@ -80,7 +80,7 @@ sub make_para_hash {
   my ( $string, $all_footnotes_ref ) = @_ ;
   my $footnote_indexes = [];
   my $heading_level = $string =~ m~<w:pStyle w:val="Heading(\d+)~ ? $1 : 0;
-  $string =~ s~<w:br/>~<w:t>[LINE BREAK]</w:t>~g;   # add line breaks #! FIX
+  $string =~ s~<w:br/>~<w:t>{& LINE BREAK &}</w:t>~g unless $opt_N;   # add line breaks #! FIX
   unless ($opt_F) { $string =~ s~<w:footnoteReference w:id="(\d+)"/>~add_footnote_ref($1, $footnote_indexes)~ge };   # add footnote refs
   unless ($opt_E) { $string =~ s~<w:endnoteReference w:id="(\d+)"/>~<w:t>[Endnote ref $1]</w:t>~g };   # add endnote refs
   $string =~ s~<pic:[^>]+descr="([^"]*)"[^>]*>~<w:t>[Image: $1]</w:t>~g;   # add alt text
@@ -94,6 +94,15 @@ sub make_para_hash {
   );
   return \%para_hash;
 
+}
+
+sub replace_special_chars {
+  my $str = shift;
+  $str =~ s|{& LINE BREAK &}|\n|g;
+  $str =~ s|&lt;|<|g;
+  $str =~ s|&gt;|>|g;
+  $str =~ s|&amp;|&|g;
+  return $str;
 }
 
 sub get_footnote_array {
@@ -157,6 +166,7 @@ sub help_fn {
   print "-G) Excludes the alt-text from graphics from the output. (todo)\n";
   print "-H) Doesn't style headings in the output. (todo)\n";
   print "-K) Excludes hyperlinks from the output. (todo)\n";
+  print "-N) Ignores line breaks within characters (Puts all characters on a single line).\n";
   print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20";
   print "\n\n";
 }
