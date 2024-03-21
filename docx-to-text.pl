@@ -23,15 +23,27 @@ if ( $opt_s && $opt_s =~ m/^\d+$/ && $opt_s > 0 && $opt_s < 21 ) {
 }
 # my $linebreak = "\n" x ($opt_s && $opt_s > 0 ? $opt_s : 2);
 
+my $max_print_width = 120; # Determines max print width of lines for underline characters. Could add as option?
+
+# my %heading_underlines = (
+#   1 => "=",
+#   2 => "=== ",
+#   3 => "= ",
+#   4 => "-",
+#   5 => "--- ",
+#   6 => "- ",
+# );
+
 
 #+ handle arguments +#
 while( @ARGV ) {
   my $file = shift @ARGV;
   die "Bad file argument: $file\n" unless ( -e $file && $file =~ /\.docx$/ );
   my $full_text = get_full_text( $file );
-  my $final = replace_special_chars( $full_text );
+  # my $final = replace_special_chars( $full_text );
 
-  print $final;
+  # print $final;
+  print $full_text;
 
 #  print Dumper( \@para_strings );
   # print Dumper( \@para_hashes );
@@ -55,7 +67,18 @@ sub get_full_text {
   my $output = "";
 
   foreach my $para (@arr_of_para_hashes) {
-    $output .= "$para->{text}$linebreak";
+    my $newtext = replace_special_chars($para->{text});
+    my $heading = $opt_H ? 0 : $para->{heading_level};
+
+    if ($heading) { $output .= "\n" . "#" x $heading . " " };
+
+    $output .= $newtext;
+    if ($heading) { $output .= "\n" . add_underline($para) };
+#    $output .= "$para->{text}";
+    # if ( $para->{heading_level} && ! $opt_H ) {
+    # $output .= ( "\n" . add_underline($para) ); #´`` if $para->{heading_level};
+    # };
+    $output .= "$linebreak";
     my $footnote_refs = $para->{footnotes};
     for my $footnote_ref (@{$footnote_refs}) { 
       $output .= "$footnote_ref$linebreak";
@@ -80,7 +103,7 @@ sub make_para_hash {
   my ( $string, $all_footnotes_ref ) = @_ ;
   my $footnote_indexes = [];
   my $heading_level = $string =~ m~<w:pStyle w:val="Heading(\d+)~ ? $1 : 0;
-  $string =~ s~<w:br/>~<w:t>{& LINE BREAK &}</w:t>~g unless $opt_N;   # add line breaks #! FIX
+  $string =~ s~<w:br/>~<w:t>{& LINE BREAK &}</w:t>~g unless $opt_N;   # add line breaks
   unless ($opt_F) { $string =~ s~<w:footnoteReference w:id="(\d+)"/>~add_footnote_ref($1, $footnote_indexes)~ge };   # add footnote refs
   unless ($opt_E) { $string =~ s~<w:endnoteReference w:id="(\d+)"/>~<w:t>[Endnote ref $1]</w:t>~g };   # add endnote refs
   $string =~ s~<pic:[^>]+descr="([^"]*)"[^>]*>~<w:t>[Image: $1]</w:t>~g;   # add alt text
@@ -103,6 +126,27 @@ sub replace_special_chars {
   $str =~ s|&gt;|>|g;
   $str =~ s|&amp;|&|g;
   return $str;
+}
+
+sub add_underline {
+  my $ref = shift;
+  my $level = $ref->{heading_level};
+  my $text = replace_special_chars($ref->{text});
+  my $lastline = $text =~ s/.+\n(.+)\h+/$1/r;
+  my $length = length( $lastline ) + $level + 1;
+
+  my $width = $max_print_width > $length ? $length : $max_print_width;
+  # my $single_underline = $heading_underlines{ $level };
+  my $underline = "";
+  while ( length( $underline ) < $width ) {
+    # $underline .= $single_underline;
+    $underline .= "=";
+  }
+  $underline =~ s/ +$//;
+
+  return $underline;
+
+
 }
 
 sub get_footnote_array {
