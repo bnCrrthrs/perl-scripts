@@ -6,21 +6,30 @@ use Getopt::Std;
 use Data::Dumper;
 
 #+ handle options +#
-our( $opt_E, $opt_F, $opt_s, $opt_c, $opt_d );
-getopts('EFs:c:d:');
+our( $opt_h, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_s, $opt_c, $opt_d );
+getopts('hEFHKs:c:d:');
 
-my $linebreak = "\n" x ($opt_s && $opt_s > 0 ? $opt_s : 2);
+if ($opt_h) {
+  help_fn();
+  exit 1;
+}
 
-$opt_E && print "option E\n";
-$opt_F && print "option F\n";
-$opt_c && print $opt_c . "\n";
-$opt_d && print $opt_d . "\n";
+my $linebreak;
+if ( $opt_s && $opt_s =~ m/^\d+$/ && $opt_s > 0 && $opt_s < 21 ) {
+  $linebreak = "\n" x $opt_s;
+} else {
+  $linebreak = "\n" x 2;
+  $opt_s && warn "Invalid argument: -s value must be integer between 1 and 20.\nDefault value of 2 has been used.\n";
+}
+# my $linebreak = "\n" x ($opt_s && $opt_s > 0 ? $opt_s : 2);
+
 
 #+ handle arguments +#
 while( @ARGV ) {
   my $file = shift @ARGV;
   die "Bad file argument: $file\n" unless ( -e $file && $file =~ /\.docx$/ );
   my $full_text = get_full_text( $file );
+#  my $final = replace_special_chars( $full_text );
 
   print $full_text;
 
@@ -41,7 +50,7 @@ sub get_full_text {
   my $refto_array_of_footnotes = (get_footnote_array( $footnote_xml ));
   my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes ), @para_strings );
 
-  my @array_of_endnotes = get_endnotes_array($endnote_xml);
+  my @array_of_endnotes = get_endnotes_array($endnote_xml) unless $opt_E;
 
   my $output = "";
 
@@ -53,11 +62,11 @@ sub get_full_text {
     }
   }
 
-  foreach my $endnote (@array_of_endnotes) {
-    $output .= "$endnote$linebreak";
+  unless ( $opt_E ) {
+    foreach my $endnote (@array_of_endnotes) {
+      $output .= "$endnote$linebreak";
+    }
   }
-
-  #! ADD ENDNOTES
 
   return $output;
 }
@@ -72,8 +81,8 @@ sub make_para_hash {
   my $footnote_indexes = [];
   my $heading_level = $string =~ m~<w:pStyle w:val="Heading(\d+)~ ? $1 : 0;
   $string =~ s~<w:br/>~<w:t>[LINE BREAK]</w:t>~g;   # add line breaks #! FIX
-  $string =~ s~<w:footnoteReference w:id="(\d+)"/>~add_footnote_ref($1, $footnote_indexes)~ge;   # add footnote refs
-  $string =~ s~<w:endnoteReference w:id="(\d+)"/>~<w:t>[Endnote ref $1]</w:t>~g;   # add endnote refs
+  unless ($opt_F) { $string =~ s~<w:footnoteReference w:id="(\d+)"/>~add_footnote_ref($1, $footnote_indexes)~ge };   # add footnote refs
+  unless ($opt_E) { $string =~ s~<w:endnoteReference w:id="(\d+)"/>~<w:t>[Endnote ref $1]</w:t>~g };   # add endnote refs
   $string =~ s~<pic:[^>]+descr="([^"]*)"[^>]*>~<w:t>[Image: $1]</w:t>~g;   # add alt text
   my $actual_text = ( extract_actual_text($string) );
   my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_indexes} );
@@ -88,6 +97,7 @@ sub make_para_hash {
 }
 
 sub get_footnote_array {
+  if ($opt_F) { return };
   my $footnote_xml = shift;
   my @footnotes = ( $footnote_xml =~ m|(<w:footnote [^>]*w:id="\d+".+?</w:footnote>)|g );
   my @footnote_content = map( extract_actual_text($_), @footnotes );
@@ -137,6 +147,19 @@ sub extract_text {
   if (${^CHILD_ERROR_NATIVE} && $required) { die  "Could not extract $zipped from $zip" };
   return $result;
 };
+
+sub help_fn {
+  print "\ndocx-to-txt.pl\n", "==============\n", "Converts docx files to text and prints the contents.\n\n";
+  print "Options:\n--------\n";
+  print "-h) Prints this help menu.\n";
+  print "-E) Excludes endnotes from the output. (todo)\n-";
+  print "-F) Excludes footnotes from the output. (todo)\n";
+  print "-G) Excludes the alt-text from graphics from the output. (todo)\n";
+  print "-H) Doesn't style headings in the output. (todo)\n";
+  print "-K) Excludes hyperlinks from the output. (todo)\n";
+  print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20";
+  print "\n\n";
+}
 
 # q {
 # HEADER / FOOTER => ultimately just in <w:t>header</w:t> tags
