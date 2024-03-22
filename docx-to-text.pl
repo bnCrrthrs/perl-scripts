@@ -7,7 +7,7 @@ use Data::Dumper;
 
 #+ handle options +#
 our( $opt_h, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_c, $opt_d );
-getopts('hEFHKNs:c:d:');
+getopts('hEFGHKNs:c:d:');
 
 if ($opt_h) {
   help_fn();
@@ -109,7 +109,7 @@ sub make_para_hash {
   unless ($opt_F) { $string =~ s|<w:footnoteReference w:id="(\d+)"/>|add_footnote_ref($1, $footnote_indexes)|ge };   # add footnote refs
   unless ($opt_E) { $string =~ s|<w:endnoteReference w:id="(\d+)"/>|<w:t>[Endnote ref $1]</w:t>|g };   # add endnote refs
   unless ($opt_K) { $string =~ s|(<w:hyperlink [^>]*r:id="rId\d+".+?</w:hyperlink>)|add_hyperlink($1, $all_links_ref)|ge };
-  $string =~ s|<pic:[^>]+descr="([^"]*)"[^>]*>|<w:t>[Image: $1]</w:t>|g;   # add alt text
+  $string =~ s|<pic:[^>]+descr="([^"]*)"[^>]*>|<w:t>[Image: $1]</w:t>|g unless $opt_G;   # add alt text
   my $actual_text = ( extract_actual_text($string) );
   my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_indexes} );
 
