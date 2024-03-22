@@ -4,10 +4,12 @@ use strict;
 use warnings;
 use Getopt::Std;
 use Data::Dumper;
+use utf8;
+use open ":std", ":encoding(UTF-8)"; # Don't understand this! https://stackoverflow.com/questions/47940662/how-to-get-rid-of-wide-character-in-print-at
 
 #+ handle options +#
-our( $opt_h, $opt_c, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_d );
-getopts('hcEFGHKNs:d:');
+our( $opt_h, $opt_c, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_w );
+getopts('hcEFGHKNs:w:');
 
 if ($opt_h) {
   help_fn();
@@ -23,7 +25,14 @@ if ( $opt_s && $opt_s =~ m/^\d+$/ && $opt_s > 0 && $opt_s < 21 ) {
 }
 # my $linebreak = "\n" x ($opt_s && $opt_s > 0 ? $opt_s : 2);
 
-my $max_print_width = 120; # Determines max print width of lines for underline characters. Could add as option?
+  my $max_print_width = 0;
+if ( $opt_w && $opt_w =~ m/^\d+$/ && $opt_w > 0 ) {
+  $max_print_width = $opt_w;
+} elsif ( $opt_w ) {
+  warn "Invalid argument: -w value must be a positive integer greater.\n Default value of 0 has been used.";
+}
+
+# my $max_print_width = 120; # Determines max print width of lines for underline characters. Could add as option?
 
 # my %heading_underlines = (
 #   1 => "=",
@@ -99,7 +108,13 @@ sub get_full_text {
     $output =~ s/\h+$//gm;
   }
 
-  return $output;
+  if ( $max_print_width ) {
+    $output =~ s/(.{$max_print_width}(?!\n))/$1\n/gm;
+  }
+
+#  utf8::encode($output);
+
+  return ($output);
 }
 
 
@@ -168,7 +183,8 @@ sub add_underline {
   my $lastline = $text =~ s/.+\n(.+)\h+/$1/r;
   my $length = length( $lastline ) + $level + 1;
 
-  my $width = $max_print_width > $length ? $length : $max_print_width;
+#  my $width = $max_print_width > $length ? $length : $max_print_width;
+  my $width = (( $max_print_width && $max_print_width > $length ) || ! $max_print_width )  ? $length : $max_print_width;
   # my $single_underline = $heading_underlines{ $level };
   my $single_underline = $level > 2 ? "-" : "=";
   my $underline = "";
@@ -228,6 +244,8 @@ sub extract_text {
   my ( $zip, $zipped, $required ) = @_;
   my $result = `unzip -p "$zip" "$zipped" 2> /dev/null`;
   if (${^CHILD_ERROR_NATIVE} && $required) { die  "Could not extract $zipped from $zip" };
+   utf8::decode($result);
+
   return $result;
 };
 
@@ -243,6 +261,7 @@ sub help_fn {
   print "-K) Excludes hyperlinks from the output.\n";
   print "-N) Ignores line breaks within characters.\n";
   print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20";
+  print "-w) Requires integer argument, determining the maximum width of a printed line.\n 0 means no maximum width (this is the default).(TODO)"; #todo
   print "\n\n";
 }
 
