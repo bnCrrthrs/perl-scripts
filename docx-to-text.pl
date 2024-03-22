@@ -55,12 +55,14 @@ while( @ARGV ) {
 sub get_full_text {
   my $file = shift;
   my $xml = extract_text ( $file, "word/document.xml", "1" );
-  my $footnote_xml = extract_text ( $file, "word/footnotes.xml", "0" ) unless $opt_F; #? status: untested
-  my $endnote_xml = extract_text ( $file, "word/endnotes.xml", "0" ) unless $opt_E; #? status: untested
+  my $footnote_xml = extract_text ( $file, "word/footnotes.xml", "0" ) unless $opt_F;
+  my $endnote_xml = extract_text ( $file, "word/endnotes.xml", "0" ) unless $opt_E;
+  my $hyperlinks_xml = extract_text ( $file, "word/_rels/document.xml.rels", "0" ) unless $opt_K;
   
   my @para_strings = ( $xml =~ m|<w:p [^>]+>.+?</w:p>|g );
   my $refto_array_of_footnotes = (get_footnote_array( $footnote_xml ));
-  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes ), @para_strings );
+  my $refto_hashof_hyperlinks = get_hash_hyperlinks($hyperlinks_xml);
+  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes, $refto_hashof_hyperlinks ), @para_strings );
 
   my @array_of_endnotes = get_endnotes_array($endnote_xml) unless $opt_E;
 
@@ -100,13 +102,14 @@ sub get_full_text {
 
 sub make_para_hash {
   #? TODO ADD LIST LEVEL
-  my ( $string, $all_footnotes_ref ) = @_ ;
+  my ( $string, $all_footnotes_ref, $all_links_ref ) = @_ ;
   my $footnote_indexes = [];
-  my $heading_level = $string =~ m~<w:pStyle w:val="Heading(\d+)~ ? $1 : 0;
-  $string =~ s~<w:br/>~<w:t>{& LINE BREAK &}</w:t>~g unless $opt_N;   # add line breaks
-  unless ($opt_F) { $string =~ s~<w:footnoteReference w:id="(\d+)"/>~add_footnote_ref($1, $footnote_indexes)~ge };   # add footnote refs
-  unless ($opt_E) { $string =~ s~<w:endnoteReference w:id="(\d+)"/>~<w:t>[Endnote ref $1]</w:t>~g };   # add endnote refs
-  $string =~ s~<pic:[^>]+descr="([^"]*)"[^>]*>~<w:t>[Image: $1]</w:t>~g;   # add alt text
+  my $heading_level = $string =~ m|<w:pStyle w:val="Heading(\d+)| ? $1 : 0;
+  $string =~ s|<w:br/>|<w:t>{& LINE BREAK &}</w:t>|g unless $opt_N;   # add line breaks
+  unless ($opt_F) { $string =~ s|<w:footnoteReference w:id="(\d+)"/>|add_footnote_ref($1, $footnote_indexes)|ge };   # add footnote refs
+  unless ($opt_E) { $string =~ s|<w:endnoteReference w:id="(\d+)"/>|<w:t>[Endnote ref $1]</w:t>|g };   # add endnote refs
+  unless ($opt_K) { $string =~ s|(<w:hyperlink [^>]*r:id="rId\d+".+?</w:hyperlink>)|add_hyperlink($1, $all_links_ref)|ge };
+  $string =~ s|<pic:[^>]+descr="([^"]*)"[^>]*>|<w:t>[Image: $1]</w:t>|g;   # add alt text
   my $actual_text = ( extract_actual_text($string) );
   my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_indexes} );
 
@@ -116,7 +119,31 @@ sub make_para_hash {
     footnotes => \@footnote_content,
   );
   return \%para_hash;
+}
 
+sub add_hyperlink {
+  my ( $xml, $links_hash_ref ) = @_;
+  $xml =~ m|<w:hyperlink[^>]+r:id="(rId\d+)"|;
+  my $id = $1;
+  my $target = $links_hash_ref->{ $id };
+  my $display_text = extract_actual_text($xml);
+  if ( $display_text eq $target ) {
+    return "<w:t>$target</w:t>";
+  } else {
+    return "<w:t>[$display_text]($target)</w:t>";
+  }
+}
+
+sub get_hash_hyperlinks {
+  if ($opt_K) { return };
+  my $xml = shift;
+  my @relationships = $xml =~ m|<Relationship [^>]+ TargetMode="External"/>|g;
+  my %hyperlinks = ();
+  foreach my $relationship ( @relationships ) {
+    $relationship =~ m|Id="(rId\d+)".+Target="(.+?)"|;
+    $hyperlinks{$1} = $2;
+  }
+  return \%hyperlinks;
 }
 
 sub replace_special_chars {
@@ -137,16 +164,13 @@ sub add_underline {
 
   my $width = $max_print_width > $length ? $length : $max_print_width;
   # my $single_underline = $heading_underlines{ $level };
+  my $single_underline = $level > 2 ? "-" : "=";
   my $underline = "";
   while ( length( $underline ) < $width ) {
-    # $underline .= $single_underline;
-    $underline .= "=";
+    $underline .= $single_underline;
   }
   $underline =~ s/ +$//;
-
   return $underline;
-
-
 }
 
 sub get_footnote_array {
@@ -205,12 +229,12 @@ sub help_fn {
   print "\ndocx-to-txt.pl\n", "==============\n", "Converts docx files to text and prints the contents.\n\n";
   print "Options:\n--------\n";
   print "-h) Prints this help menu.\n";
-  print "-E) Excludes endnotes from the output. (todo)\n-";
-  print "-F) Excludes footnotes from the output. (todo)\n";
-  print "-G) Excludes the alt-text from graphics from the output. (todo)\n";
-  print "-H) Doesn't style headings in the output. (todo)\n";
-  print "-K) Excludes hyperlinks from the output. (todo)\n";
-  print "-N) Ignores line breaks within characters (Puts all characters on a single line).\n";
+  print "-E) Excludes endnotes from the output.\n-";
+  print "-F) Excludes footnotes from the output.\n";
+  print "-G) Excludes the alt-text from graphics from the output. (todo)\n"; #!
+  print "-H) Doesn't style headings in the output.\n";
+  print "-K) Excludes hyperlinks from the output.\n";
+  print "-N) Ignores line breaks within characters.\n";
   print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20";
   print "\n\n";
 }
