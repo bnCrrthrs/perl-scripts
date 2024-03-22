@@ -6,8 +6,8 @@ use Getopt::Std;
 use Data::Dumper;
 
 #+ handle options +#
-our( $opt_h, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_c, $opt_d );
-getopts('hEFGHKNs:c:d:');
+our( $opt_h, $opt_c, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_d );
+getopts('hcEFGHKNs:d:');
 
 if ($opt_h) {
   help_fn();
@@ -70,6 +70,7 @@ sub get_full_text {
 
   foreach my $para (@arr_of_para_hashes) {
     my $newtext = replace_special_chars($para->{text});
+    next if $opt_c && $newtext =~ m/^\s*$/;
     my $heading = $opt_H ? 0 : $para->{heading_level};
 
     if ($heading) { $output .= "\n" . "#" x $heading . " " };
@@ -91,6 +92,11 @@ sub get_full_text {
     foreach my $endnote (@array_of_endnotes) {
       $output .= "$endnote$linebreak";
     }
+  }
+
+  if ( $opt_c ) {
+    $output =~ s/\h{2,}/ /g;
+    $output =~ s/\h+$//gm;
   }
 
   return $output;
@@ -229,9 +235,10 @@ sub help_fn {
   print "\ndocx-to-txt.pl\n", "==============\n", "Converts docx files to text and prints the contents.\n\n";
   print "Options:\n--------\n";
   print "-h) Prints this help menu.\n";
+  print "-c) Cleans the output to exclude double spaces, empty paragraphs and trailing spaces.\n";
   print "-E) Excludes endnotes from the output.\n-";
   print "-F) Excludes footnotes from the output.\n";
-  print "-G) Excludes the alt-text from graphics from the output. (todo)\n"; #!
+  print "-G) Excludes the alt-text from graphics from the output.\n";
   print "-H) Doesn't style headings in the output.\n";
   print "-K) Excludes hyperlinks from the output.\n";
   print "-N) Ignores line breaks within characters.\n";
