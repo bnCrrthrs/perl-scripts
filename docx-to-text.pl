@@ -254,15 +254,15 @@ sub help_fn {
   print "Options:\n--------\n";
   print "-h) Prints this help menu.\n";
   print "-c) Cleans the output to exclude double spaces, empty paragraphs and trailing spaces.\n";
-  print "-E) Excludes endnotes from the output.\n-";
+  print "-E) Excludes endnotes from the output.\n";
   print "-F) Excludes footnotes from the output.\n";
   print "-G) Excludes the alt-text from graphics from the output.\n";
   print "-H) Doesn't style headings in the output.\n";
   print "-K) Excludes hyperlinks from the output.\n";
   print "-N) Ignores line breaks within characters.\n";
-  print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20";
-  print "-w) Requires integer argument, determining the maximum width of a printed line.\n 0 means no maximum width (this is the default).(TODO)"; #todo
-  print "\n\n";
+  print "-s) Requires integer argument, determining the number of linebreaks used\n    to separate paragraphs. Default is 2, max is 20\n";
+  print "-w) Requires integer argument, determining the maximum width of a printed line.\n    0 means no maximum width (this is the default).\n";
+  print "\n";
 }
 
 # q {
