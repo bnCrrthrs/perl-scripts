@@ -5,153 +5,65 @@ use warnings;
 use HTTP::Tiny;
 use Tie::File;
 
-my $tsv = shift @ARGV || 0;
-unless ( $tsv =~ m/\.tsv$/ && -e $tsv) { die "Please supply valid tsv\n" }; 
+my $csv = shift @ARGV || 0;
+unless ( $csv =~ m/\.(c|t)sv$/i && -e $csv) { die "Please supply valid csv\n" };
 
-# open (my $fh, "<", $tsv);
-# my @lines = ();
+my $seperator = lc($1) eq 'c' ? ',' : "\t";
 
-# while ( my $line = readline($fh) ) {
-#   print "$line\n";
-#   print "==============\n"
-#   # my ($page, $content, $destination) = ( $line =~ m{"(.*?)"}g );
-#   # print "PAGE: $page\n";
-#   # print "CONTENT: $content\n";
-#   # print "DESTINATION: $destination\n";
-# }
+# get original contents and standardise \r and \n linebreaks with \n
+# this was necessary so Tie::File could read the lines properly
+# also has the effect of removing empty lines
+open ( my $FH_IN, '<', $csv ) or die "Could not read from $csv\n"; 
+my $content = do {
+  local $/; <$FH_IN>;
+};
+close ($FH_IN);
 
-# close ($fh);
+$content =~ s/(?:\h*\v)+/\n/mg;
 
-# exit;
+open ( my $FH_OUT, '>', $csv ) or die "Could not write to $csv\n";
+print $FH_OUT $content;
+close ($FH_OUT);
 
 
-
-print "Processing $tsv\n";
-
-tie my @array, 'Tie::File', $tsv, recsep => "\r" or die "Can't open file";
+# The way to change the record separator is an additional arg: recsep => "\r"
+# Loop over lines and add titles
+tie my @array, 'Tie::File', $csv, or die "Can't open file";
 
 my $records = @array;
-# print "$records\n";
-$array[0] = "Page\tContent\tDestination\tSuccess\tRedirects\tTitle"; #TODO Can't append to line without adding new line :(
 
-for (my $i = 1; $i < $records; $i++) {
-  # print $array[$i];
-  # my ($page, $content, $destination) = ( $array[$i] =~ m/(".*?")/g );
-  my ($page, $content, $destination) = split( "\t", $array[$i] );
+$array[0] .= "${seperator}Success${seperator}Redirects${seperator}Title";
 
-  unless ( $destination =~ m{^"(https?://.+)"$} ) {
-    $array[$i] = join(",", $page, $content, $destination, "FAIL: invalid url");
-    next;
-  }
-
+for ( my $i = 1; $i < $records; $i++ ) {
+#  next unless $array[$i] =~ m{(https?://[^\s]+)};
+  next unless $array[$i] =~ m{(https?://.+)\h*$}m;
   my $url = $1;
-
   my $response = HTTP::Tiny->new->get( $url );
 
   unless ( $response->{success} ) {
-    $array[$i] = join(",", $page, $content, $destination, "FAIL: no response");
+    $array[$i] .= "${seperator}FAIL: no response";
     next;
   }
 
   my $phrase = wrap($response->{ reason });
   my $redirected = wrap($response->{redirects} ? $response->{url} : "none");
   my $title = wrap(response_title( $response->{content} ) || "none");
-  my $newline = join("\t", $page, $content, $destination, $phrase, $redirected, $title );
-  # print "$newline\n";
-
-  $array[$i] = $newline;
-#  $array[$i] = "$page,$content,$destination,$phrase,$redirected,$title";
+  $array[$i] .= "${seperator}${phrase}${seperator}${redirected}${seperator}${title}";
 
 }
-# ( $xml =~ m|<w:p [^>]+>.+?</w:p>|g );
 
-
-
-# open (my $fh, "<", $tsv ) or die "Can't open tsv... maybe check permissions?\n";
-
-# my $headers = <$fh>;
-
-# while ( my $line = <$fh> ) {
-#   chomp $line; #remove's \n from line
-#   my @fields = ();
-#   while 
-# }
 untie @array;
-print "Complete\n";
-exit;
+print "Finished retrieving URL titles from $csv\n";
+
+1;
 
 sub wrap {
   return "\"$_[0]\"" ;
 }
 
-
-
-
-
-foreach my $input (@ARGV) {
-  unless ( valid_url($input) ) { 
-    print "Invalid url: $input\n";
-    next;
-  }
-
-  my $slug = slugify( $input );
-  my $response = HTTP::Tiny->new->get( $input );
-  # die "Failed!\n" unless $response->{success};
-
-  unless ( $response->{success} ) {
-    print "Request failed: $input\n";
-    next;
-  }
-
-  # my $content = $response->{content};
-  my $redirected = $response->{redirects} ? $response->{url} : "none";
-  my $title = response_title( $response->{content} ) || "none";
-
-  print "$slug\nRedirected to: $redirected\nTitle: $title\n"
-
-  # print $response->{ content };
-  # print "$response->{ success } \n"; # response code is 2XX
-  # print "$response->{ url } \n"; # final URL after redirections (or original if none)
-  # print "$response->{ status } \n"; # status code of response
-  # print "$response->{ reason } \n"; # response phrase returned
-  # my $headerRef = $response->{ headers };
-  # my $redirectsRef = $response->{ redirects };
-  # print $redirectsRef ? "Redirected\n" : "OK\n";
-  # print Dumper( $redirectsRef ); # headers
-}
-
-# extracts titles from supplied urls using curl
-
-# foreach my $input (@ARGV) {
-#  unless (valid_url($input)) { next };
-#   my $slug = slugify($input);
-#   my $response = `curl --location --include --fail --globoff --silent --max-time 10 $input`;
-#   my $code = response_code($response);
-#   my $title = $code ? response_title($response) : "";
-#   print "$slug CODE: $code TITLE: $title\n";
-# }
-
-1;
-
 sub valid_url {
   return $_[0] =~ m{^"https?://}i;
 };
-
-sub slugify {
-  my $slug = lc $_[0];
-  $slug =~ s/^https?:\/\/(?:www\.)?//;
-  $slug =~ s/\/.*//;
-  $slug =~ s/[^\w\.]/_/;
-  return $slug;
-}
-
-sub response_code {
-  if ( $_[0] =~ /^\S+\s(\d+)/ ) {
-    return $1;
-  } else {
-    return undef;
-  }
-}
 
 sub response_title {
   if ( $_[0] =~ m{<title[^>]*>(.+)</title>}i ) {
