@@ -2,9 +2,22 @@
 
 use strict;
 use warnings;
+use Getopt::Std;
 use HTTP::Tiny;
 
 use Data::Dumper;
+
+
+#+ handle options +#
+our( $opt_h, $opt_l );
+getopts('hl');
+
+if ($opt_h) {
+  help_fn();
+  exit 0;
+}
+
+#+ MAIN +#
 
 foreach my $input (@ARGV) {
   unless ( valid_url($input) ) { 
@@ -25,7 +38,11 @@ foreach my $input (@ARGV) {
   my $redirected = $response->{redirects} ? $response->{url} : "none";
   my $title = response_title( $response->{content} ) || "none";
 
-  print "$slug\nRedirected to: $redirected\nTitle: $title\n"
+  if ($opt_l) {
+    print "$slug\nRedirected to: $redirected\nTitle: $title\n";
+  } else {
+    print "$title\n";
+  }
 
   # print $response->{ content };
   # print "$response->{ success } \n"; # response code is 2XX
@@ -77,4 +94,13 @@ sub response_title {
   } else {
     return undef;
   }
+}
+
+sub help_fn {
+  print "\nget-url-title.pl\n", "================\n";
+  print "    Takes one or more URLs as arguments and retrieves their titles.\n\n";
+  print "    Options:\n--------\n";
+  print "        -h) Prints this help menu and exits.\n";
+  print "        -l) Print slug and redirect info for each URL.\n";
+  print "\n";
 }
