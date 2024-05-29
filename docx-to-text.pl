@@ -7,6 +7,9 @@ use Data::Dumper;
 use utf8;
 use open ":std", ":encoding(UTF-8)"; # Don't understand this! https://stackoverflow.com/questions/47940662/how-to-get-rid-of-wide-character-in-print-at
 
+my $footnote_ref_counter = 1;
+my $footnote_counter = 1;
+
 #+ handle options +#
 our( $opt_h, $opt_c, $opt_E, $opt_F, $opt_G, $opt_H, $opt_K, $opt_N, $opt_s, $opt_w );
 getopts('hcEFGHKNs:w:');
@@ -69,20 +72,27 @@ sub get_full_text {
   my $hyperlinks_xml = extract_text ( $file, "word/_rels/document.xml.rels", "0" ) unless $opt_K;
   
   my @para_strings = ( $xml =~ m|<w:p [^>]+>.+?</w:p>|g );
-  my $refto_array_of_footnotes = (get_footnote_array( $footnote_xml ));
+  # my $refto_array_of_footnotes = (get_footnote_array( $footnote_xml )); #!!! old
+  my $refto_array_of_footnote_hashes = (get_arr_of_footnote_hashes( $footnote_xml )); #!!! new
+    # print Dumper(\$refto_array_of_footnote_hashes);
+
   my $refto_hashof_hyperlinks = get_hash_hyperlinks($hyperlinks_xml);
-  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes, $refto_hashof_hyperlinks ), @para_strings );
+#  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes, $refto_hashof_hyperlinks ), @para_strings ); #!!! old
+  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnote_hashes, $refto_hashof_hyperlinks ), @para_strings ); #!!! new
 
   my @array_of_endnotes = get_endnotes_array($endnote_xml) unless $opt_E;
 
   my $output = "";
+  # print Dumper(\@para_strings);
 
   foreach my $para (@arr_of_para_hashes) {
     my $newtext = replace_special_chars($para->{text});
     next if $opt_c && $newtext =~ m/^\s*$/;
     my $heading = $opt_H ? 0 : $para->{heading_level};
-
+    my $list = $para->{list};
+    
     if ($heading) { $output .= "\n" . "#" x $heading . " " };
+    if ($list) { $output .= $list }; 
 
     $output .= $newtext;
     if ($heading) { $output .= "\n" . add_underline($para) };
@@ -98,8 +108,11 @@ sub get_full_text {
   }
 
   unless ( $opt_E ) {
-    foreach my $endnote (@array_of_endnotes) {
-      $output .= "$endnote$linebreak";
+    # foreach my $endnote (@array_of_endnotes) {
+    #   $output .= "$endnote$linebreak";
+    # }
+    while (@array_of_endnotes) {
+      $output .= shift(@array_of_endnotes) . $linebreak;
     }
   }
 
@@ -124,20 +137,26 @@ sub get_full_text {
 sub make_para_hash {
   #? TODO ADD LIST LEVEL
   my ( $string, $all_footnotes_ref, $all_links_ref ) = @_ ;
-  my $footnote_indexes = [];
+  # my $footnote_indexes = [];
+  my $footnote_ids = [];
   my $heading_level = $string =~ m|<w:pStyle w:val="Heading(\d+)| ? $1 : 0;
+  my $num_list = $string =~ m|<w:pStyle[^>]+Numlist| ? "1. " : 0;
+  my $bull_list = $string =~ m{<w:pStyle[^>]+(Bullist)|(ListParagraph)} ? "- " : 0;
   $string =~ s|<w:br/>|<w:t>{& LINE BREAK &}</w:t>|g unless $opt_N;   # add line breaks
-  unless ($opt_F) { $string =~ s|<w:footnoteReference w:id="(\d+)"/>|add_footnote_ref($1, $footnote_indexes)|ge };   # add footnote refs
+  # unless ($opt_F) { $string =~ s|<w:footnoteReference w:id="(\d+)"/>|add_footnote_ref($1, $footnote_indexes)|ge };   # add footnote refs
+  unless ($opt_F) { $string =~ s|<w:footnoteReference w:id="(\d+)"/>|add_footnote_ids($1, $footnote_ids)|ge };   # add footnote IDs #!!
   unless ($opt_E) { $string =~ s|<w:endnoteReference w:id="(\d+)"/>|<w:t>[Endnote ref $1]</w:t>|g };   # add endnote refs
   unless ($opt_K) { $string =~ s|(<w:hyperlink [^>]*r:id="rId\d+".+?</w:hyperlink>)|add_hyperlink($1, $all_links_ref)|ge };
   $string =~ s|<pic:[^>]+descr="([^"]*)"[^>]*>|<w:t>[Image: $1]</w:t>|g unless $opt_G;   # add alt text
   my $actual_text = ( extract_actual_text($string) );
-  my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_indexes} );
+  # my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_indexes} );
+  my @footnote_content = map( get_footnote_content($_, $all_footnotes_ref), @{$footnote_ids} );
 
   my %para_hash = (
     text => $actual_text,
     heading_level => $heading_level,
     footnotes => \@footnote_content,
+    list => $num_list || $bull_list || 0,
   );
   return \%para_hash;
 }
@@ -195,15 +214,38 @@ sub add_underline {
   return $underline;
 }
 
-sub get_footnote_array {
+#!!! new
+
+sub get_arr_of_footnote_hashes {
   if ($opt_F) { return };
   my $footnote_xml = shift;
-  my @footnotes = ( $footnote_xml =~ m|(<w:footnote [^>]*w:id="\d+".+?</w:footnote>)|g );
-  my @footnote_content = map( extract_actual_text($_), @footnotes );
-  # my $reference = \@footnotes;
-  # return $reference;
-  return \@footnote_content;
+  my @footnotes = ( $footnote_xml =~ m|(<w:footnote [^>]*w:id="(\d+)".+?</w:footnote>)|g );
+  my @arr_of_footnote_hashes = ();
+  while ($footnotes[0]) {
+    my $note = shift @footnotes;
+    my $id = shift @footnotes;
+    my %footnote_hash = (
+      id => $id,
+      note => extract_actual_text($note),
+    );
+    push( @arr_of_footnote_hashes, \%footnote_hash );
+  }
+
+  return \@arr_of_footnote_hashes;
+  
 }
+
+
+# #!!! old
+# sub get_footnote_array {
+#   if ($opt_F) { return };
+#   my $footnote_xml = shift;
+#   my @footnotes = ( $footnote_xml =~ m|(<w:footnote [^>]*w:id="\d+".+?</w:footnote>)|g );
+#   my @footnote_content = map( extract_actual_text($_), @footnotes );
+#   # my $reference = \@footnotes;
+#   # return $reference;
+#   return \@footnote_content;
+# }
 
 sub get_endnotes_array {
   my $endnote_xml = shift;
@@ -224,20 +266,46 @@ sub extract_actual_endnote_text {
   my $id = ($xml =~ m/w:id="(\d+)"/) ? $1 : 0;
   unless ( $id > 0 ) { return "" };
   my $content = extract_actual_text($xml);
+  unless ( $content ne "" ) { return "" };
   return "[Endnote $id: $content]";
 }
 
+# sub get_footnote_content {
+#   my ( $footnote_index, $footnotes ) = @_;
+#   my $content = @{$footnotes}[$footnote_index];
+#   my $actual = "[Footnote $footnote_index:$content]";
+#   return $actual;
+# }
+#!!!
 sub get_footnote_content {
-  my ( $footnote_index, $footnotes ) = @_;
-  my $content = @{$footnotes}[$footnote_index];
-  my $actual = "[Footnote $footnote_index:$content]";
+  my ( $id, $footnote_hashes ) = @_;
+  my $content = "";
+  foreach( @$footnote_hashes ) {
+    my %hash = %$_;
+    if ($hash{id} == $id) {
+      $content = $hash{note};
+      last;
+    }
+  }
+  # my $content = @{$footnotes}[$footnote_index];
+  my $actual = "[Footnote $footnote_counter:$content]";
+  $footnote_counter++;
   return $actual;
 }
 
-sub add_footnote_ref {
-  my ( $ref, $footnote_a_ref ) = @_;
-  push(@{$footnote_a_ref}, $ref);
-  return "<w:t>[Footnote ref $ref]</w:t>";
+# sub add_footnote_ref {
+#   my ( $ref, $footnote_a_ref ) = @_;
+#   push(@{$footnote_a_ref}, $ref);
+#   return "<w:t>[Footnote ref $ref]</w:t>";
+# }
+#!!! new
+sub add_footnote_ids {
+  my ( $id, $footnote_a_ref ) = @_;
+  push(@{$footnote_a_ref}, $id);
+
+  my $processed_footnote = "<w:t>[Footnote ref $footnote_ref_counter]</w:t>";
+  $footnote_ref_counter++;
+  return $processed_footnote;
 }
 
 sub extract_text {
