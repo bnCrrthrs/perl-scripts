@@ -70,16 +70,19 @@ sub get_full_text {
   my $footnote_xml = extract_text ( $file, "word/footnotes.xml", "0" ) unless $opt_F;
   my $endnote_xml = extract_text ( $file, "word/endnotes.xml", "0" ) unless $opt_E;
   my $hyperlinks_xml = extract_text ( $file, "word/_rels/document.xml.rels", "0" ) unless $opt_K;
+  my $styles_xml = extract_text ( $file, "word/styles.xml", "1" );
+  my @styles_arr_raw = ( $styles_xml =~ m|<w:style .+?</w:style>|g );
+  my %heading_map = map_headings( \@styles_arr_raw ); #!
   
   my @para_strings = ( $xml =~ m|<w:p [^>]+>.+?</w:p>|g );
   # my $refto_array_of_footnotes = (get_footnote_array( $footnote_xml )); #!!! old
   my $refto_array_of_footnote_hashes = (get_arr_of_footnote_hashes( $footnote_xml )); #!!! new
     # print Dumper(\$refto_array_of_footnote_hashes);
-
+#  print Dumper(\@para_strings);
   my $refto_hashof_hyperlinks = get_hash_hyperlinks($hyperlinks_xml);
 #  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnotes, $refto_hashof_hyperlinks ), @para_strings ); #!!! old
-  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnote_hashes, $refto_hashof_hyperlinks ), @para_strings ); #!!! new
-
+  my @arr_of_para_hashes = map( make_para_hash($_, $refto_array_of_footnote_hashes, $refto_hashof_hyperlinks, \%heading_map ), @para_strings ); #!!! new
+  # print Dumper(\@arr_of_para_hashes);
   my @array_of_endnotes = get_endnotes_array($endnote_xml) unless $opt_E;
 
   my $output = "";
@@ -136,10 +139,14 @@ sub get_full_text {
 
 sub make_para_hash {
   #? TODO ADD LIST LEVEL
-  my ( $string, $all_footnotes_ref, $all_links_ref ) = @_ ;
+  my ( $string, $all_footnotes_ref, $all_links_ref, $heading_map_ref) = @_ ;
+  my %heading_map = %{ $heading_map_ref };
   # my $footnote_indexes = [];
   my $footnote_ids = [];
-  my $heading_level = $string =~ m|<w:pStyle w:val="Heading(\d+)| ? $1 : 0;
+  my $para_style_id = ($string =~ m|<w:pStyle w:val="(.+?)"| && $1);
+  my $heading_level = $heading_map{ $para_style_id } || 0;
+
+  # my $heading_level = $string =~ m|<w:pStyle w:val="Heading(\d+)| ? $1 : 0;
   my $num_list = $string =~ m|<w:pStyle[^>]+Numlist| ? "1. " : 0;
   my $bull_list = $string =~ m{<w:pStyle[^>]+(Bullist)|(ListParagraph)} ? "- " : 0;
   $string =~ s|<w:br/>|<w:t>{& LINE BREAK &}</w:t>|g unless $opt_N;   # add line breaks
@@ -199,8 +206,14 @@ sub add_underline {
   my $ref = shift;
   my $level = $ref->{heading_level};
   my $text = replace_special_chars($ref->{text});
-  my $lastline = $text =~ s/.+\n(.+)\h+/$1/r;
-  my $length = length( $lastline ) + $level + 1;
+  my $trimmed = $text =~ s/\s+$//r;
+  $trimmed =~ s/.+\n([^\v]+)$/$1/;
+  # my $lastline = $text =~ s/\n?(.+)\h*/$1/r;  
+
+  # my $length = length( $lastline ) + $level + 1;
+  my $length = length( $trimmed );
+  if ($opt_w) { $length %= $opt_w };
+  $length += $level + 1;
 
 #  my $width = $max_print_width > $length ? $length : $max_print_width;
   my $width = (( $max_print_width && $max_print_width > $length ) || ! $max_print_width )  ? $length : $max_print_width;
@@ -316,6 +329,31 @@ sub extract_text {
 
   return $result;
 };
+
+sub map_headings {
+  my $ref = shift;
+  my @styles_arr_raw = @{ $ref };
+  my %styles_map = ();
+
+  # Map defined heading levels
+  foreach( @styles_arr_raw ) {
+    if ( $_ =~ m|w:styleId="(.+?)".+w:outlineLvl w:val="(\d+)"| ) {      
+      $styles_map{$1} = ($2 + 1);
+    }
+  }
+
+  # Map styles based on defined heading levels
+  foreach( @styles_arr_raw ) {
+    next unless ($_ =~ m|w:styleId="(.+?)"| );
+    next if $styles_map{$1};
+    my $id = $1;
+    if ( $_ =~ m|<w:basedOn w:val="(.+?)"| && $styles_map{$1} ) {
+      $styles_map{$id} = $styles_map{$1};
+    }
+
+  }
+  return %styles_map;
+}
 
 sub help_fn {
   print "\ndocx-to-txt.pl\n", "==============\n", "Converts docx files to text and prints the contents.\n\n";
